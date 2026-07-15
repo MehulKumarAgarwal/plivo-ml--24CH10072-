@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EOT Detection: Final Summary</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            background-color: #f9f9f9;
+        }
+        h1, h2, h3 {
+            color: #2F4F4F; /* Dark Slate */
+        }
+        h1 {
+            border-bottom: 3px solid #800000; /* Maroon accent */
+            padding-bottom: 10px;
+        }
+        h2 {
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 5px;
+            margin-top: 30px;
+        }
+        .highlight {
+            background-color: #e8f4f8;
+            padding: 15px;
+            border-left: 4px solid #2F4F4F;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background-color: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #2F4F4F;
+            color: white;
+        }
+        .ai-human-split {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .split-card {
+            flex: 1;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-top: 4px solid #800000;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>End-of-Turn (EOT) Detection Assignment Summary</h1>
+    
+    <div class="highlight">
+        <strong>Objective:</strong> Build a machine learning model from scratch to predict whether a user has finished their conversational turn, strictly adhering to causality rules (no future audio) and hardware constraints (CPU-only, no pretrained models).
+    </div>
+
+    <h2>1. The Solution & Why It Beats the Status Quo</h2>
+    <p>The status quo (baseline) utilizes a naive Voice Activity Detection (VAD) endpointing approach, which assumes every pause is an end-of-turn and relies entirely on a rigid 1.6-second silence timer. This results in a frustrating user experience with a <strong>~1600 ms average response delay</strong>.</p>
+    <p>Our solution moves beyond mere silence detection by modeling conversational <em>prosody</em>. By analyzing the 1.5 seconds of audio strictly before the pause, the model captures the acoustic cues humans use to signal intent:</p>
+    <ul>
+        <li><strong>Pitch (F0) Dynamics:</strong> We calculate the slope of the pitch over the final voiced frames. A falling pitch strongly correlates with a completed thought, whereas a flat or rising pitch signals a conversational "hold."</li>
+        <li><strong>Energy Decay Ratio:</strong> Instead of looking at absolute volume, we measure the relative drop in energy. A gradual trailing off indicates hesitation, while a sharp cutoff indicates an end-of-turn.</li>
+        <li><strong>Voicing Fraction:</strong> Measures the density of speech leading into the pause to establish pacing context.</li>
+    </ul>
+    <p>These features are fed into a <code>scikit-learn</code> pipeline comprising a <code>StandardScaler</code> and a <code>RandomForestClassifier</code> (or <code>SVC</code>), allowing the system to learn the non-linear boundaries between hesitations and actual completions.</p>
+
+    <h2>2. Results</h2>
+    <p>By relying on prosodic cues rather than a fixed timer, the pipeline drastically reduced the mean response delay while strictly adhering to the &le; 5% false-cutoff constraint.</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Dataset</th>
+                <th>Model</th>
+                <th>Mean Response Delay (@ 5% cutoffs)</th>
+                <th>AUC</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>English</td>
+                <td>Baseline (Silence-only)</td>
+                <td>~1600 ms</td>
+                <td>N/A</td>
+            </tr>
+            <tr>
+                <td>English</td>
+                <td>Prosodic Random Forest Pipeline</td>
+                <td><strong>508 ms</strong></td>
+                <td><strong>0.967</strong></td>
+            </tr>
+            <tr>
+                <td>Hindi (Unseen)</td>
+                <td>Prosodic Random Forest Pipeline</td>
+                <td><strong>850 ms</strong></td>
+                <td><strong>0.551</strong></td>
+            </tr>
+        </tbody>
+    </table>
+    <p><em>Note: The performance delta between English and Hindi demonstrates classic domain shift. The model learned English-specific prosodic distributions, highlighting the necessity for cross-lingual training for production readiness.</em></p>
+
+    <h2>3. Division of Labor (Human vs. AI)</h2>
+    <div class="ai-human-split">
+        <div class="split-card">
+            <h3>Human Work</h3>
+            <ul>
+                <li>Audited the baseline failure modes by manually isolating and listening to the longest "hold" pauses in the raw <code>.wav</code> files.</li>
+                <li>Identified the critical acoustic signals (flat pitch, trailing energy) required to separate classes.</li>
+                <li>Architected the shift from absolute features to relative/normalized features to combat cross-lingual overfitting.</li>
+                <li>Executed local ML training loops, evaluated metrics, and managed strict causality rule compliance.</li>
+            </ul>
+        </div>
+        <div class="split-card">
+            <h3>AI Coding Agent (Gemini)</h3>
+            <ul>
+                <li>Generated <code>pandas</code> utility scripts to quickly parse <code>labels.csv</code> and filter for edge cases.</li>
+                <li>Translated human acoustic hypotheses into vectorized <code>numpy</code> code for the <code>extract_features</code> function.</li>
+                <li>Provided the boilerplate code for the <code>scikit-learn</code> pipeline, handling <code>StandardScaler</code> integration and model saving via <code>joblib</code>.</li>
+                <li>Drafted the final <code>predict.py</code> script to ensure proper inference on unseen data.</li>
+            </ul>
+        </div>
+    </div>
+
+    <h2>4. Summary of Markdown Files</h2>
+    <ul>
+        <li><strong><code>RUNLOG.md</code>:</strong> Chronicles the iterative modeling process. It details the progression from the naive 1600ms baseline, to an initial 1190ms logistic regression attempt, and finally to the optimized 508ms pipeline, noting the architectural changes made at each step.</li>
+        <li><strong><code>NOTES.md</code>:</strong> Provides a concise overview of the acoustic signals utilized (pitch and energy decay), acknowledges current model limitations regarding background noise and cross-lingual generalization, and outlines future optimization paths (such as combining datasets).</li>
+    </ul>
+
+</body>
+</html>
